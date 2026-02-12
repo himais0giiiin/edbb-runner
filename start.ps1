@@ -94,7 +94,7 @@ Write-Host "[2/3] venv: アクティベート済み" -ForegroundColor Green
 $null = python -c "import discord" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[3/3] discord.py: インストール中..." -ForegroundColor Yellow
-    pip install discord.py[voice] python-dotenv --quiet
+    pip install discord.py[voice] --quiet
     Write-Host "[3/3] discord.py: 完了" -ForegroundColor Green
 }
 else {
@@ -158,6 +158,25 @@ if ($needsToken) {
         }
     }
     Write-Host ""
+}
+
+# ============================================
+# 環境変数の読み込み
+# ============================================
+
+# .envファイルから環境変数を読み込み
+if (Test-Path ".env") {
+    Get-Content ".env" | Where-Object {
+        # コメント行（#で始まる）と空行を無視
+        $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*$'
+    } | ForEach-Object {
+        if ($_ -match '^([^=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            # プロセス環境変数として設定
+            [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+        }
+    }
 }
 
 # ============================================
