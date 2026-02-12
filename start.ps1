@@ -1,5 +1,5 @@
 ﻿# ============================================
-# EDBB.bat - 自動セットアップスクリプト
+# EDBB Runner - 自動セットアップスクリプト
 # ============================================
 
 # UTF-8エンコーディング設定
@@ -29,7 +29,7 @@ function Test-PythonInstalled {
 # ============================================
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "EDBB.bat v1.0.0" -ForegroundColor Cyan
+Write-Host "EDBB Runner v1.0.0" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
