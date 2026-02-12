@@ -36,6 +36,7 @@ ALLOWED_ORIGINS = [
 # ============================================
 
 bot_process = None
+server = None
 
 
 class BotHandler(BaseHTTPRequestHandler):
@@ -72,14 +73,15 @@ class BotHandler(BaseHTTPRequestHandler):
             with open('bot.py', 'w', encoding='utf-8') as f:
                 f.write(bot_code)
 
-            # bot.pyを起動
-            start_bot()
-
+            # レスポンスを先に返す
             self.send_response(200)
             self._set_cors_headers()
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(b'{"status": "ok", "message": "bot.py saved and started"}')
+            self.wfile.write(b'{"status": "ok", "message": "bot.py saved and starting"}')
+
+            # bot.pyを起動
+            start_bot()
 
         except Exception as e:
             self.send_response(500)
@@ -123,6 +125,13 @@ def start_bot():
         except subprocess.TimeoutExpired:
             bot_process.kill()
 
+    # デカデカとログ表示
+    print("")
+    print("=" * 50)
+    print("🤖 BOT起動")
+    print("=" * 50)
+    print("")
+
     # 新しいプロセスを起動
     python_path = os.path.join('venv', 'Scripts', 'python.exe')
     bot_process = subprocess.Popen(
@@ -134,18 +143,27 @@ def start_bot():
 
 def run_server():
     """HTTPサーバーを起動"""
-    server = HTTPServer(('localhost', PORT), BotHandler)
-
+    global server
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        server.shutdown()
+        # ポートが被った場合はエラーを出す
+        HTTPServer.allow_reuse_address = False
+
+        # サーバー初期化
+        server = HTTPServer(('localhost', PORT), BotHandler)
+    except OSError as e:
+        print(f"既にEDBB Runnerが起動しています。終了してから再実行してください。")
+        return False
+
+    # サーバー起動
+    server.serve_forever()
+    return True
 
 
-def signal_handler(sig, frame):
-    """Ctrl+Cシグナルハンドラー"""
+def cleanup():
+    """プロセスとサーバーをクリーンアップ"""
+    global bot_process, server
+
     # BOTプロセスを終了
-    global bot_process
     if bot_process and bot_process.poll() is None:
         bot_process.terminate()
         try:
@@ -153,25 +171,28 @@ def signal_handler(sig, frame):
         except subprocess.TimeoutExpired:
             bot_process.kill()
 
-    sys.exit(0)
+    # HTTPサーバーを終了
+    if server:
+        server.shutdown()
 
 
 def main():
     """メイン処理"""
-    # シグナルハンドラーを登録
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # メッセージ表示
+    print("準備完了")
+    print("EDBBページから▶ボタンを押すことで実行できます。")
 
     # bot.pyが存在する場合は起動
     if Path('bot.py').exists():
         start_bot()
 
-    # メッセージ表示
-    print("準備完了")
-    print("EDBBページから▶ボタンを押すことで実行できます。")
-
     # HTTPサーバーを起動（メインスレッドで実行）
-    run_server()
+    try:
+        run_server()
+    except KeyboardInterrupt:
+        print()  # 改行のみ
+    finally:
+        cleanup() # Botとサーバーを終了
 
 
 if __name__ == '__main__':
