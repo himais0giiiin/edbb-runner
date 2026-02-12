@@ -2,6 +2,11 @@
 # EDBB Runner - 自動セットアップスクリプト
 # ============================================
 
+# コマンドライン引数
+param(
+    [switch]$dev
+)
+
 # UTF-8エンコーディング設定
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -101,8 +106,6 @@ else {
     Write-Host "[3/3] discord.py: インストール済み" -ForegroundColor Green
 }
 
-Write-Host ""
-
 # ============================================
 # Discord BOTトークンの確認
 # ============================================
@@ -120,6 +123,7 @@ else {
 }
 
 if ($needsToken) {
+    Write-Host ""
     Write-Host "Discord BOTトークンを入力してください:" -ForegroundColor Yellow
     Write-Host "(Discord Developer Portalで取得したトークン)" -ForegroundColor Gray
     Write-Host ""
@@ -157,7 +161,6 @@ if ($needsToken) {
             Write-Host ""
         }
     }
-    Write-Host ""
 }
 
 # ============================================
@@ -180,7 +183,18 @@ if (Test-Path ".env") {
 }
 
 # ============================================
-# start.py起動
+# Bot起動
 # ============================================
 
-python start.py
+# -dev引数がある場合はHTTPサーバー付きで起動、ない場合はbot.pyのみ起動
+if ($dev) {
+    python edbb-runner.py
+}
+else {
+    Write-Host ""
+    Write-Host "=================================================="
+    Write-Host "🤖 BOT起動"
+    Write-Host "=================================================="
+    Write-Host ""
+    python bot.py
+}
