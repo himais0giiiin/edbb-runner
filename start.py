@@ -5,6 +5,7 @@ HTTPサーバーでbot.pyを受信し、BOTを起動します
 
 import os
 import sys
+import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import subprocess
@@ -18,10 +19,16 @@ from pathlib import Path
 # HTTPサーバーのポート番号
 PORT = 6859
 
-# CORS許可ドメインリスト
+# CORS許可リスト（正規表現）
 ALLOWED_ORIGINS = [
-    "https://himais0giiiin.com",
-    "https://beta.himais0giiiin.com",
+    re.compile(r'^https?://localhost(:\d+)?$'),
+    re.compile(r'^https?://127\.0\.0\.1(:\d+)?$'),
+    re.compile(r'^https?://\[::1\](:\d+)?$'),
+    re.compile(r'^https?://himais0giiiin\.com$'),
+    re.compile(r'^https?://([a-zA-Z0-9-]+\.)?himais0giiiin\.com$'),
+    re.compile(r'^https?://beta\.himais0giiiin\.com$'),
+    re.compile(r'^https?://([a-zA-Z0-9-]+\.)?edbb\.himaiso\.workers\.dev$'),
+    re.compile(r'^https?://edbplugin\.github\.io$'),
 ]
 
 # ============================================
@@ -41,11 +48,12 @@ class BotHandler(BaseHTTPRequestHandler):
     def _set_cors_headers(self):
         """CORSヘッダーを設定"""
         origin = self.headers.get('Origin')
-        if origin in ALLOWED_ORIGINS:
+
+        # 許可リストと正規表現で照合
+        if origin and any(regex.match(origin) for regex in ALLOWED_ORIGINS):
             self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Bot-Token')
-            self.send_header('Access-Control-Allow-Credentials', 'true')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
 
     def do_OPTIONS(self):
         """プリフライトリクエストに対応"""
