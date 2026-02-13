@@ -109,7 +109,7 @@ else {
         }
 
         Write-Host "[1/3] Python: 環境変数の更新に時間がかかっています" -ForegroundColor Yellow
-        Write-Host "[1/3] Python: このウィンドウを閉じて、再度start.batを実行してください" -ForegroundColor Gray
+        Write-Host "[1/3] Python: このウィンドウを閉じて、再度edbb-runnerを起動.batを実行してください" -ForegroundColor Gray
         Read-Host "Enterキーを押して終了"
         exit 0
     }
