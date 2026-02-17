@@ -177,11 +177,11 @@ def start_bot():
     global bot_process
 
     if not Path("bot.py").exists():
-        append_log("bot.py not found.")
+        append_log("bot.py not found./bot.pyが見つかりません。")
         return
 
     if bot_process and bot_process.poll() is None:
-        append_log("Stopping previous bot process...")
+        append_log("Stopping previous bot process.../前回のbotプロセスを停止しています...")
         bot_process.terminate()
         try:
             bot_process.wait(timeout=5)
@@ -190,9 +190,9 @@ def start_bot():
 
     python_path = os.path.join("venv", "Scripts", "python.exe")
     if not Path(python_path).exists():
-        raise FileNotFoundError(f"Python runtime not found: {python_path}")
+        raise FileNotFoundError(f"Python runtime not found: {python_path} /Pythonランタイムが見つかりません: {python_path}")
 
-    append_log("Starting bot process...")
+    append_log("Starting bot process.../botプロセスを起動しています...")
     bot_process = subprocess.Popen(
         [python_path, "bot.py"],
         stdout=subprocess.PIPE,
@@ -223,7 +223,7 @@ def run_server():
         HTTPServer.allow_reuse_address = False
         server = HTTPServer(("localhost", PORT), BotHandler)
     except OSError:
-        print("EDBB Runner is already running. Close it and try again.")
+        print("EDBB Runner is already running. Close it and try again./EDBB Runnerはすでに起動しています。閉じてからもう一度試してください。")
         return False
     server.serve_forever()
     return True
@@ -244,13 +244,13 @@ def cleanup():
 def main():
     print("")
     print("=" * 50)
-    print("EDBB Runner started")
+    print("EDBB Runner started/EDBB Runnerが起動しました")
     print("=" * 50)
     print("")
-    print("Keep this window open while using the Run button.")
+    print("Keep this window open while using the Run button./起動ボタンを使用している場合、このウィンドウを開いておいてください。")
 
     if Path("bot.py").exists():
-        append_log("Existing bot.py detected. Starting bot.")
+        append_log("Existing bot.py detected. Starting bot./既存のbot.pyが検出されました。botを起動しています。")
         start_bot()
 
     try:
