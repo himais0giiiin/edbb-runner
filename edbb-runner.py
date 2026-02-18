@@ -1,10 +1,9 @@
-"""
+﻿"""
 EDBB Runner
 Receives bot.py over HTTP, starts the bot process, and exposes status/logs.
 """
 
 import json
-import os
 import re
 import subprocess
 import threading
@@ -31,6 +30,22 @@ server = None
 log_lock = threading.Lock()
 log_lines = []
 log_offset = 0
+MODULE_PACKAGE_MAP = {
+    "discord": "discord.py[voice]",
+    "cv2": "opencv-python",
+    "PIL": "Pillow",
+    "yaml": "PyYAML",
+    "dotenv": "python-dotenv",
+    "bs4": "beautifulsoup4",
+    "sklearn": "scikit-learn",
+    "Crypto": "pycryptodome",
+    "OpenSSL": "pyopenssl",
+    "dateutil": "python-dateutil",
+    "google.generativeai": "google-generativeai",
+    "google.genai": "google-genai",
+    "aiohttp": "aiohttp",
+    "requests": "requests",
+}
 
 
 def append_log(line):
@@ -68,6 +83,191 @@ def get_logs_from(offset):
             "logs": items,
             "truncated": normalized > next_offset,
         }
+
+
+def _summarize_command_output(stdout, stderr, max_lines=6):
+    lines = []
+    for text in (stderr or "", stdout or ""):
+        lines.extend([line.strip() for line in text.splitlines() if line.strip()])
+    if not lines:
+        return "No output."
+    return " | ".join(lines[-max_lines:])
+
+
+def _scan_missing_modules(python_path, bot_path):
+    script = r"""
+import ast
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+bot_path = Path(sys.argv[1])
+source = bot_path.read_text(encoding="utf-8")
+tree = ast.parse(source, filename=str(bot_path))
+
+modules = set()
+for node in ast.walk(tree):
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if alias.name:
+                modules.add(alias.name)
+    elif isinstance(node, ast.ImportFrom):
+        if node.level == 0 and node.module:
+            modules.add(node.module)
+
+def module_exists(name):
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+def is_local_module(name):
+    root = name.split(".", 1)[0]
+    root_dir = bot_path.parent / root
+    if (bot_path.parent / f"{root}.py").exists():
+        return True
+    if root_dir.exists():
+        return True
+    return False
+
+missing = []
+for module_name in sorted(modules):
+    root = module_name.split(".", 1)[0]
+    if root in sys.builtin_module_names:
+        continue
+    if hasattr(sys, "stdlib_module_names") and root in sys.stdlib_module_names:
+        continue
+    if is_local_module(module_name):
+        continue
+    if not module_exists(module_name):
+        missing.append(module_name)
+
+print(json.dumps({"missing_modules": missing}, ensure_ascii=False))
+"""
+    result = subprocess.run(
+        [str(python_path), "-c", script, str(bot_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        details = _summarize_command_output(result.stdout, result.stderr)
+        append_log(f"Dependency scan skipped: {details}")
+        return []
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        append_log("Dependency scan returned invalid output.")
+        return []
+    missing = payload.get("missing_modules", [])
+    if not isinstance(missing, list):
+        return []
+    return [name for name in missing if isinstance(name, str) and name.strip()]
+
+
+def _module_install_candidates(module_name):
+    root = module_name.split(".", 1)[0]
+    candidates = []
+
+    for key in (module_name, root):
+        mapped = MODULE_PACKAGE_MAP.get(key)
+        if mapped and mapped not in candidates:
+            candidates.append(mapped)
+
+    fallback_root = root.replace("_", "-").lower()
+    if fallback_root and fallback_root not in candidates:
+        candidates.append(fallback_root)
+
+    fallback_full = module_name.replace("_", "-").replace(".", "-").lower()
+    if fallback_full and fallback_full not in candidates:
+        candidates.append(fallback_full)
+
+    return candidates
+
+
+def _module_is_available(python_path, module_name):
+    check_code = (
+        "import importlib.util, sys\n"
+        "name = sys.argv[1]\n"
+        "try:\n"
+        "    print('1' if importlib.util.find_spec(name) is not None else '0')\n"
+        "except Exception:\n"
+        "    print('0')\n"
+    )
+    result = subprocess.run(
+        [str(python_path), "-c", check_code, module_name],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return result.returncode == 0 and result.stdout.strip() == "1"
+
+
+def _install_package(python_path, package_name):
+    result = subprocess.run(
+        [
+            str(python_path),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            package_name,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    success = result.returncode == 0
+    details = _summarize_command_output(result.stdout, result.stderr)
+    return success, details
+
+
+def ensure_bot_dependencies(python_path, bot_path):
+    missing_modules = _scan_missing_modules(python_path, bot_path)
+    if not missing_modules:
+        append_log("Dependency check complete. No missing package detected.")
+        return
+
+    append_log(f"Missing modules detected: {', '.join(missing_modules)}")
+    attempted_packages = set()
+    unresolved_modules = []
+
+    for module_name in missing_modules:
+        if _module_is_available(python_path, module_name):
+            continue
+
+        installed = False
+        for package_name in _module_install_candidates(module_name):
+            if package_name in attempted_packages:
+                if _module_is_available(python_path, module_name):
+                    installed = True
+                    break
+                continue
+
+            attempted_packages.add(package_name)
+            append_log(f"Installing package '{package_name}' for '{module_name}'...")
+            success, details = _install_package(python_path, package_name)
+            if success:
+                append_log(f"Installed package '{package_name}'.")
+                if _module_is_available(python_path, module_name):
+                    installed = True
+                    break
+            else:
+                append_log(f"Failed to install '{package_name}': {details}")
+
+        if not installed:
+            unresolved_modules.append(module_name)
+
+    if unresolved_modules:
+        raise RuntimeError(
+            "Could not resolve module(s): " + ", ".join(unresolved_modules)
+        )
+
+    append_log("Dependency installation complete.")
 
 
 def _stream_reader(stream, stream_name):
@@ -177,24 +377,25 @@ def start_bot():
     global bot_process
 
     if not Path("bot.py").exists():
-        append_log("bot.py not found./bot.pyが見つかりません。")
+        append_log("bot.py not found.")
         return
 
     if bot_process and bot_process.poll() is None:
-        append_log("Stopping previous bot process.../前回のbotプロセスを停止しています...")
+        append_log("Stopping previous bot process...")
         bot_process.terminate()
         try:
             bot_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             bot_process.kill()
 
-    python_path = os.path.join("venv", "Scripts", "python.exe")
-    if not Path(python_path).exists():
-        raise FileNotFoundError(f"Python runtime not found: {python_path} /Pythonランタイムが見つかりません: {python_path}")
+    python_path = Path("venv") / "Scripts" / "python.exe"
+    if not python_path.exists():
+        raise FileNotFoundError(f"Python runtime not found: {python_path}")
+    ensure_bot_dependencies(python_path, Path("bot.py"))
 
-    append_log("Starting bot process.../botプロセスを起動しています...")
+    append_log("Starting bot process...")
     bot_process = subprocess.Popen(
-        [python_path, "bot.py"],
+        [str(python_path), "bot.py"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -223,7 +424,7 @@ def run_server():
         HTTPServer.allow_reuse_address = False
         server = HTTPServer(("localhost", PORT), BotHandler)
     except OSError:
-        print("EDBB Runner is already running. Close it and try again./EDBB Runnerはすでに起動しています。閉じてからもう一度試してください。")
+        print("EDBB Runner is already running. Close it and try again.")
         return False
     server.serve_forever()
     return True
@@ -244,13 +445,13 @@ def cleanup():
 def main():
     print("")
     print("=" * 50)
-    print("EDBB Runner started/EDBB Runnerが起動しました")
+    print("<<<EDBB Runner started>>>")
     print("=" * 50)
     print("")
-    print("Keep this window open while using the Run button./起動ボタンを使用している場合、このウィンドウを開いておいてください。")
+    print("Keep this window open while using the Run button.")
 
     if Path("bot.py").exists():
-        append_log("Existing bot.py detected. Starting bot./既存のbot.pyが検出されました。botを起動しています。")
+        append_log("Existing bot.py detected. Starting bot.")
         start_bot()
 
     try:
@@ -263,3 +464,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
